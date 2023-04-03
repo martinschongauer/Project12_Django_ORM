@@ -1,5 +1,4 @@
-# Project12_Django_ORM
-Projet 12: Développez une architecture back-end sécurisée en utilisant Django ORM 
+# Projet 12: Développez une architecture back-end sécurisée en utilisant Django ORM 
 
 Conception à l'aide de Django d'une API REST de gestion pour la société EpicEvents. Elle permet de gérer des listes d'employés, de clients, de contrats et d'événements ainsi que les relations qu'ils entretiennent les uns avec les autres. Tandis que les membres de l'équipe de vente peuvent créer les contrats, les clients, et les événements, les membres de l'équipe support disposent d'un accès limité, pour des raisons de sécurité, à la gestion des événements qui leur ont été attribués. Une équipe de gestion, dont les droits sont proches de ceux du super-utilisateur, peut accéder à tous les endpoints et, en particulier, gérer les autres équipes.
 
