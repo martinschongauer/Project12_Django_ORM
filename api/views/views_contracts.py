@@ -3,10 +3,9 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from rest_framework.decorators import permission_classes
-from api.permissions import IsAdminManagerOrSales
-from django.db import IntegrityError
+from api.permissions import SupportReadOnly
 
-from api.models import Contract
+from api.models import Contract, SalesUser
 from api.serializers import ContractSerializer, CreateContractSerializer, UpdateContractSerializer
 from api.serializers import ContractDetailSerializer
 
@@ -15,8 +14,27 @@ from api.serializers import ContractDetailSerializer
 #   Endpoints used to deal with contracts
 # ----------------------------------------
 
+def write_access_to_contract(contract, user):
+    """
+    In order to modify existing contract infos, more subtle checks are needed
+    param contract: the contract to be accessed
+    param user: the logged user
+    return value: True if access is granted
+    """
+    # Sales team member? Then we must be associated with this contract and/or client
+    if SalesUser.objects.filter(seller=user):
+        client = contract.Client
+        if contract.Sales_contact.seller == user or client.Sales_contact.seller == user:
+            return True
+        else:
+            return False
+
+    # Admin or manager: OK
+    return True
+
+
 @api_view(['GET', 'POST'])
-@permission_classes([IsAdminManagerOrSales])
+@permission_classes([SupportReadOnly])
 def contracts(request):
     """
     GET: See all contracts (summary)
@@ -43,7 +61,7 @@ def contracts(request):
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
-@permission_classes([IsAdminManagerOrSales])
+@permission_classes([SupportReadOnly])
 def contract_detail(request, contract_id):
     """
     GET: See detailed information about a client
@@ -57,6 +75,15 @@ def contract_detail(request, contract_id):
     except Contract.DoesNotExist:
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
+    # Get detailed infos
+    if request.method == 'GET':
+        serializer = ContractDetailSerializer(contract)
+        return Response(serializer.data)
+
+    # PUT and DELETE require additional verifications
+    if not write_access_to_contract(contract, request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
     # Update
     if request.method == 'PUT':
         serializer = UpdateContractSerializer(contract, data=request.data, partial=True)
@@ -69,7 +96,3 @@ def contract_detail(request, contract_id):
     elif request.method == 'DELETE':
         contract.delete()
         return Response(status=status.HTTP_200_OK)
-
-    # Get detailed infos
-    serializer = ContractDetailSerializer(contract)
-    return Response(serializer.data)

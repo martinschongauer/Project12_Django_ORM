@@ -3,9 +3,9 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from rest_framework.decorators import permission_classes
-from api.permissions import IsAdminManagerOrSales
+from api.permissions import SupportReadOnly
 
-from api.models import Client
+from api.models import Client, SalesUser
 from api.serializers import ClientSerializer, CreateClientSerializer, UpdateClientSerializer, ClientDetailSerializer
 
 
@@ -13,9 +13,26 @@ from api.serializers import ClientSerializer, CreateClientSerializer, UpdateClie
 #   Endpoints used to deal with Clients
 # ---------------------------------------
 
+def write_access_to_client(client, user):
+    """
+    In order to modify existing client infos, more subtle checks are needed
+    param client: the client to be accessed
+    param user: the logged user
+    return value: True if access is granted
+    """
+    # Sales team member? Then we must be associated with this client
+    if SalesUser.objects.filter(seller=user):
+        if client.Sales_contact.seller == user:
+            return True
+        else:
+            return False
+
+    # Admin or manager: OK
+    return True
+
 
 @api_view(['GET', 'POST'])
-@permission_classes([IsAdminManagerOrSales])
+@permission_classes([SupportReadOnly])
 def clients(request):
     """
     GET: See a list of clients
@@ -42,7 +59,7 @@ def clients(request):
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
-@permission_classes([IsAdminManagerOrSales])
+@permission_classes([SupportReadOnly])
 def client_detail(request, client_id):
     """
     GET: See detailed information about a client
@@ -56,6 +73,15 @@ def client_detail(request, client_id):
     except Client.DoesNotExist:
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
+    # Read detailed infos
+    if request.method == 'GET':
+        serializer = ClientDetailSerializer(client)
+        return Response(serializer.data)
+
+    # PUT and DELETE require additional verifications
+    if not write_access_to_client(client, request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+
     # Update
     if request.method == 'PUT':
         serializer = UpdateClientSerializer(client, data=request.data, partial=True)
@@ -68,7 +94,3 @@ def client_detail(request, client_id):
     elif request.method == 'DELETE':
         client.delete()
         return Response(status=status.HTTP_200_OK)
-
-    # By default, get detailed infos
-    serializer = ClientDetailSerializer(client)
-    return Response(serializer.data)

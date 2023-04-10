@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from rest_framework.decorators import permission_classes
-from api.permissions import IsAdminOrManager, IsAdminManagerOrSales
+from api.permissions import IsAdminOrManager
 
 from api.models import ManagementUser, SalesUser, SupportUser
 from api.serializers import CreateUserSerializer, UpdateUserSerializer

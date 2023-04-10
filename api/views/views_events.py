@@ -3,10 +3,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from rest_framework.decorators import permission_classes
+from api.permissions import SupportReadOnly
 from rest_framework.permissions import IsAuthenticated
-from api.permissions import IsAdminManagerOrSales
 
-from api.models import Event, ManagementUser, SalesUser
+from api.models import Event, ManagementUser
 from api.serializers import EventSerializer, CreateEventSerializer, UpdateEventSerializer, EventDetailSerializer
 
 
@@ -14,8 +14,45 @@ from api.serializers import EventSerializer, CreateEventSerializer, UpdateEventS
 #   Events-related endpoints
 # ---------------------------
 
+def write_access_to_event(event, request):
+    """
+    In order to modify existing event infos, more subtle checks are needed
+    param event: the event to be accessed
+    param request: the whole request to be examined
+    return value: True if access is granted
+    """
+    user = request.user
+
+    # Easy case: is user a manager/admin?
+    if user.is_superuser or ManagementUser.objects.filter(manager=user):
+        return True
+
+    # Sales team member? Then we must be associated with this contract and/or client
+    contract = event.Contract
+    client = contract.Client
+    if contract.Sales_contact.seller == user or client.Sales_contact.seller == user:
+        return True
+
+    # Is the request user the support team member associated with this event?
+    event_support = event.Support_contact
+    if event_support.support == request.user:
+        # Support Team members cannot delete an event
+        if request.method == 'DELETE':
+            return False
+        # But thy can modify it, except two sensitive fields
+        else:
+            if 'Contract' in request.data:
+                request.data.pop('Contract')
+            if 'Support_contact' in request.data:
+                request.data.pop('Support_contact')
+            return True
+
+    # We did not fall into any allowed category
+    return False
+
+
 @api_view(['GET', 'POST'])
-@permission_classes([IsAdminManagerOrSales])
+@permission_classes([SupportReadOnly])
 def events(request):
     """
     GET: See all events (summary)
@@ -54,44 +91,22 @@ def event_detail(request, event_id):
     except Event.DoesNotExist:
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
-    # Is the request user the support team member associated with this event?
-    event_support = event.Support_contact
-    if event_support.support == request.user:
-        user_is_support = True
-    else:
-        user_is_support = False
+    # Get detailed infos - accessible to everyone
+    if request.method == 'GET':
+        serializer = EventDetailSerializer(event)
+        return Response(serializer.data)
 
-    # Or is it a manager/seller/admin?
-    if not request.user.is_superuser\
-       and not ManagementUser.objects.filter(manager=request.user)\
-       and not SalesUser.objects.filter(seller=request.user):
-        is_manager = False
-    else:
-        is_manager = True
-
-    # If it's neither of them, exit
-    if not is_manager and not user_is_support:
+    # To get further, we need particular authorizations
+    if not write_access_to_event(event, request):
         return Response(status=status.HTTP_403_FORBIDDEN)
 
     # Delete: the support guy cannot delete an event
     if request.method == 'DELETE':
-        if is_manager:
-            event.delete()
-            return Response(status=status.HTTP_200_OK)
-        else:
-            return Response(status=status.HTTP_403_FORBIDDEN)
-
-    # Get detailed infos - accessible to everyone
-    elif request.method == 'GET':
-        serializer = EventDetailSerializer(event)
-        return Response(serializer.data)
+        event.delete()
+        return Response(status=status.HTTP_200_OK)
 
     # Update: support cannot modify himself and the contract field -> remove fields
     if request.method == 'PUT':
-        if user_is_support:
-            request.data.pop('Contract')
-            request.data.pop('Support_contact')
-
         serializer = UpdateEventSerializer(event, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
